@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>病床空き状況</title>
+  <style>
+    :root{
+      --accent:#007bc3;
+      --plenty:#1f8a4c;   /* ◯ */
+      --some:#e0902a;     /* △ */
+      --full:#d9534f;     /* 満床 / 1 */
+      --line:#e4e7eb;
+    }
+    *{box-sizing:border-box;}
+    body{font-family:'Helvetica Neue','Hiragino Kaku Gothic ProN',Meiryo,sans-serif;margin:0;padding:16px;color:#333;background:#f4f6f8;}
+    .container{max-width:760px;margin:0 auto;background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,.08);}
+    h1{font-size:1.3rem;text-align:center;color:var(--accent);margin:0 0 6px;line-height:1.5;}
+    .sub{text-align:center;font-size:.82rem;color:#777;margin-bottom:16px;}
+
+    .nav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px;}
+    .nav button{border:1px solid var(--accent);background:#fff;color:var(--accent);font-size:1rem;width:40px;height:40px;border-radius:50%;cursor:pointer;line-height:1;}
+    .nav button:hover{background:var(--accent);color:#fff;}
+    .nav .month-label{font-size:1.1rem;font-weight:bold;min-width:150px;text-align:center;}
+
+    table.cal{width:100%;border-collapse:collapse;table-layout:fixed;}
+    table.cal th{padding:8px 0;font-size:.8rem;color:#666;border-bottom:2px solid var(--line);}
+    table.cal th.sun{color:var(--full);}
+    table.cal th.sat{color:var(--accent);}
+    table.cal td{height:78px;border:1px solid var(--line);vertical-align:top;padding:4px;}
+    .daynum{font-size:.78rem;color:#888;}
+    td.sun .daynum{color:var(--full);}
+    td.sat .daynum{color:var(--accent);}
+    td.empty{background:#fafbfc;}
+    td.today{outline:2px solid var(--accent);outline-offset:-2px;}
+
+    .beds{display:flex;align-items:center;justify-content:center;margin-top:10px;}
+    .mark{font-size:1.5rem;font-weight:bold;line-height:1;}
+    .mark.plenty{color:var(--plenty);}
+    .mark.some{color:var(--some);}
+    .mark.one{color:var(--full);font-size:1.4rem;}
+    .mark.full{color:var(--full);font-size:1rem;font-weight:bold;}
+    .mark.nodata{color:#ccc;font-weight:normal;font-size:1rem;}
+
+    .legend{display:flex;gap:16px;justify-content:center;margin-top:16px;font-size:.78rem;color:#666;flex-wrap:wrap;}
+    .legend span{display:inline-flex;align-items:center;gap:5px;}
+    .lg{font-weight:bold;}
+    .lg.plenty{color:var(--plenty);}
+    .lg.some{color:var(--some);}
+    .lg.one{color:var(--full);}
+    .lg.full{color:var(--full);}
+    .loading{text-align:center;color:#999;padding:40px 0;}
+    .errbox{text-align:center;color:#666;padding:24px 0;font-size:.9rem;line-height:1.7;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 id="title">自治医大とちぎ子ども医療センター<br>レスパイト入院・メディカルショートステイ病床 空き状況</h1>
+    <div class="sub" id="sub"></div>
+
+    <div class="nav">
+      <button id="prev" aria-label="前の月">&lsaquo;</button>
+      <div class="month-label" id="monthLabel">読み込み中…</div>
+      <button id="next" aria-label="次の月">&rsaquo;</button>
+    </div>
+
+    <div id="calArea"><div class="loading">データを読み込んでいます…</div></div>
+
+    <div class="legend">
+      <span><span class="lg plenty">◯</span>空きあり（4床以上）</span>
+      <span><span class="lg some">△</span>残りわずか（2〜3床）</span>
+      <span><span class="lg one">1</span>残り1床</span>
+      <span><span class="lg full">満床</span>満床</span>
+    </div>
+  </div>
+
+  <script>
+    // ===== 設定 =====
+    // 空き数データを取得するGAS（病床空き状況_管理シートを読み取る）のURL
+    var GAS_URL = 'https://script.google.com/macros/s/AKfycbwZxMg0c7zzHa6Wm_BdgP6DMc4pTzMfN6rseK8ELISj76pTg8f1dpewXH1d_DXyqksWwQ/exec';
+
+    var bedData = {};
+    var viewYear, viewMonth;
+    var WEEK = ['日','月','火','水','木','金','土'];
+
+    function pad(n){ return (n < 10 ? '0' : '') + n; }
+    function keyOf(y,m,d){ return y + '-' + pad(m+1) + '-' + pad(d); }
+
+    // 空き数 → 記号
+    function markHtml(n){
+      if (n <= 0)  return '<span class="mark full">満床</span>';
+      if (n === 1) return '<span class="mark one">1</span>';
+      if (n <= 3)  return '<span class="mark some">△</span>';
+      return '<span class="mark plenty">◯</span>';
+    }
+
+    function render(){
+      document.getElementById('monthLabel').textContent = viewYear + '年 ' + (viewMonth+1) + '月';
+
+      var startDay = new Date(viewYear, viewMonth, 1).getDay();
+      var daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+
+      var today = new Date();
+      var todayKey = keyOf(today.getFullYear(), today.getMonth(), today.getDate());
+
+      var html = '<table class="cal"><thead><tr>';
+      for (var w=0; w<7; w++){
+        var cls = w===0 ? 'sun' : (w===6 ? 'sat' : '');
+        html += '<th class="'+cls+'">'+WEEK[w]+'</th>';
+      }
+      html += '</tr></thead><tbody><tr>';
+
+      for (var i=0; i<startDay; i++) html += '<td class="empty"></td>';
+
+      var col = startDay;
+      for (var d=1; d<=daysInMonth; d++){
+        var dow = (startDay + d - 1) % 7;
+        var cls2 = dow===0 ? 'sun' : (dow===6 ? 'sat' : '');
+        var key = keyOf(viewYear, viewMonth, d);
+        if (key === todayKey) cls2 += ' today';
+
+        html += '<td class="'+cls2+'"><div class="daynum">'+d+'</div>';
+        if (bedData.hasOwnProperty(key)){
+          html += '<div class="beds">'+markHtml(Number(bedData[key]))+'</div>';
+        } else {
+          html += '<div class="beds"><span class="mark nodata">–</span></div>';
+        }
+        html += '</td>';
+
+        col++;
+        if (col % 7 === 0 && d !== daysInMonth) html += '</tr><tr>';
+      }
+      while (col % 7 !== 0){ html += '<td class="empty"></td>'; col++; }
+      html += '</tr></tbody></table>';
+
+      document.getElementById('calArea').innerHTML = html;
+    }
+
+    function move(delta){
+      viewMonth += delta;
+      if (viewMonth < 0){ viewMonth = 11; viewYear--; }
+      if (viewMonth > 11){ viewMonth = 0; viewYear++; }
+      render();
+    }
+
+    // ===== JSONPでGASからデータ取得 =====
+    var loaded = false;
+    window.onBedData = function(payload){
+      loaded = true;
+      if (payload && payload.config){
+        if (payload.config.title) document.getElementById('title').innerHTML = payload.config.title;
+        document.getElementById('sub').textContent = payload.config.lastUpdated || '';
+        if (payload.config.title) document.title = payload.config.title.replace(/<[^>]+>/g,' ');
+      }
+      bedData = (payload && payload.beds) ? payload.beds : {};
+
+      var now = new Date();
+      viewYear = now.getFullYear();
+      viewMonth = now.getMonth();
+      render();
+    };
+
+    function showError(){
+      if (loaded) return;
+      document.getElementById('calArea').innerHTML =
+        '<div class="errbox">データの取得に時間がかかっています。<br>通信環境をご確認のうえ、ページを再読み込みしてください。</div>';
+    }
+
+    function loadData(){
+      var s = document.createElement('script');
+      // キャッシュ回避のため月日時分までを付与（新しいDateから生成）
+      var t = new Date();
+      var stamp = '' + t.getFullYear() + pad(t.getMonth()+1) + pad(t.getDate()) + pad(t.getHours()) + pad(t.getMinutes());
+      s.src = GAS_URL + '?callback=onBedData&t=' + stamp;
+      s.onerror = showError;
+      document.body.appendChild(s);
+      setTimeout(showError, 12000);
+    }
+
+    document.getElementById('prev').addEventListener('click', function(){ move(-1); });
+    document.getElementById('next').addEventListener('click', function(){ move(1); });
+    loadData();
+  </script>
+</body>
+</html>
