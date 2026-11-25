@@ -84,7 +84,7 @@
 
   <script>
     // ===== 設定 =====
-    // 空き数データを取得するGAS（病床空き状況_管理シートを読み取る）のURL
+    // 予備の取得先：旧管理シートのGAS．通常は data.json を読む（loadData 参照）
     var GAS_URL = 'https://script.google.com/macros/s/AKfycbwZxMg0c7zzHa6Wm_BdgP6DMc4pTzMfN6rseK8ELISj76pTg8f1dpewXH1d_DXyqksWwQ/exec';
 
     var bedData = {};
@@ -212,7 +212,18 @@
         '<div class="errbox">データの取得に時間がかかっています。<br>通信環境をご確認のうえ、ページを再読み込みしてください。</div>';
     }
 
+    // まず同じ場所の data.json（自治医大の管理シートが自動で書き込む）を読む．
+    // 読めないときだけ，旧経路（GASのJSONP）に切り替える．
     function loadData(){
+      if (!window.fetch){ loadJsonp(); return; }
+      fetch('data.json?t=' + Date.now(), { cache: 'no-store' })
+        .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(payload){ window.onBedData(payload); })
+        .catch(function(){ if (!loaded) loadJsonp(); });
+      setTimeout(showError, 12000);
+    }
+
+    function loadJsonp(){
       var s = document.createElement('script');
       // キャッシュ回避のため月日時分までを付与（新しいDateから生成）
       var t = new Date();
