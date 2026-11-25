@@ -52,7 +52,7 @@
     .lg.one{color:var(--full);}
     .lg.full{color:var(--full);}
     .lg.hol{color:var(--full);font-weight:normal;}
-    .note{margin:0 0 16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fafbfc;font-size:.88rem;line-height:1.75;overflow-wrap:anywhere;}
+    .note{margin:18px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fafbfc;font-size:.88rem;line-height:1.75;overflow-wrap:anywhere;}
     .note p{margin:0 0 .5em;}
     .note p:last-child{margin-bottom:0;}
     .loading{text-align:center;color:#999;padding:40px 0;}
@@ -63,7 +63,6 @@
   <div class="container">
     <h1 id="title">自治医大とちぎ子ども医療センター<br>レスパイト入院・メディカルショートステイ病床 空き状況</h1>
     <div class="sub" id="sub"></div>
-    <div class="note" id="note" hidden></div>
 
     <div class="nav">
       <button id="prev" aria-label="前の月">&lsaquo;</button>
@@ -80,6 +79,7 @@
       <span><span class="lg full">満床</span>満床</span>
       <span><span class="lg hol">赤い日付</span>日曜・祝日</span>
     </div>
+    <div class="note" id="note" hidden></div>
   </div>
 
   <script>
