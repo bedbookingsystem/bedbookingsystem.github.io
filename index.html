@@ -31,6 +31,8 @@
     .daynum{font-size:.78rem;color:#888;}
     td.sun .daynum{color:var(--full);}
     td.sat .daynum{color:var(--accent);}
+    td.hol .daynum{color:var(--full);}
+    .holname{display:block;font-size:.6rem;color:var(--full);line-height:1.2;}
     td.empty{background:#fafbfc;}
     td.today{outline:2px solid var(--accent);outline-offset:-2px;}
 
@@ -49,6 +51,10 @@
     .lg.some{color:var(--some);}
     .lg.one{color:var(--full);}
     .lg.full{color:var(--full);}
+    .lg.hol{color:var(--full);font-weight:normal;}
+    .note{margin:0 0 16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fafbfc;font-size:.88rem;line-height:1.75;overflow-wrap:anywhere;}
+    .note p{margin:0 0 .5em;}
+    .note p:last-child{margin-bottom:0;}
     .loading{text-align:center;color:#999;padding:40px 0;}
     .errbox{text-align:center;color:#666;padding:24px 0;font-size:.9rem;line-height:1.7;}
   </style>
@@ -57,6 +63,7 @@
   <div class="container">
     <h1 id="title">自治医大とちぎ子ども医療センター<br>レスパイト入院・メディカルショートステイ病床 空き状況</h1>
     <div class="sub" id="sub"></div>
+    <div class="note" id="note" hidden></div>
 
     <div class="nav">
       <button id="prev" aria-label="前の月">&lsaquo;</button>
@@ -71,6 +78,7 @@
       <span><span class="lg some">△</span>残りわずか（2〜3床）</span>
       <span><span class="lg one">1</span>残り1床</span>
       <span><span class="lg full">満床</span>満床</span>
+      <span><span class="lg hol">赤い日付</span>日曜・祝日</span>
     </div>
   </div>
 
@@ -85,6 +93,38 @@
 
     function pad(n){ return (n < 10 ? '0' : '') + n; }
     function keyOf(y,m,d){ return y + '-' + pad(m+1) + '-' + pad(d); }
+
+    // ===== 日本の祝日（計算で求める．1980〜2099年に対応） =====
+    var holCache = {};
+    function holidaysOf(y){
+      if (holCache[y]) return holCache[y];
+      var h = {};
+      function set(m, d, name){ h[keyOf(y, m-1, d)] = name; }
+      function nthMon(m, n){ var f = new Date(y, m-1, 1).getDay(); return 1 + ((8 - f) % 7) + (n-1)*7; }
+      var q = Math.floor((y - 1980) / 4);
+      var spring = Math.floor(20.8431 + 0.242194*(y-1980) - q);
+      var autumn = Math.floor(23.2488 + 0.242194*(y-1980) - q);
+      set(1,1,'元日'); set(1,nthMon(1,2),'成人の日'); set(2,11,'建国記念の日'); set(2,23,'天皇誕生日');
+      set(3,spring,'春分の日'); set(4,29,'昭和の日'); set(5,3,'憲法記念日'); set(5,4,'みどりの日'); set(5,5,'こどもの日');
+      set(7,nthMon(7,3),'海の日'); set(8,11,'山の日'); set(9,nthMon(9,3),'敬老の日'); set(9,autumn,'秋分の日');
+      set(10,nthMon(10,2),'スポーツの日'); set(11,3,'文化の日'); set(11,23,'勤労感謝の日');
+      var base = Object.keys(h).sort();
+      // 振替休日: 祝日が日曜なら，その後の最初の祝日でない日
+      base.forEach(function(k){
+        var p = k.split('-'), dt = new Date(+p[0], +p[1]-1, +p[2]);
+        if (dt.getDay() !== 0) return;
+        do { dt.setDate(dt.getDate()+1); } while (h[keyOf(dt.getFullYear(), dt.getMonth(), dt.getDate())]);
+        h[keyOf(dt.getFullYear(), dt.getMonth(), dt.getDate())] = '振替休日';
+      });
+      // 国民の休日: 前後を祝日に挟まれた平日
+      base.forEach(function(k){
+        var p = k.split('-'), mid = new Date(+p[0], +p[1]-1, +p[2]+1), nx = new Date(+p[0], +p[1]-1, +p[2]+2);
+        var mk = keyOf(mid.getFullYear(), mid.getMonth(), mid.getDate());
+        if (base.indexOf(keyOf(nx.getFullYear(), nx.getMonth(), nx.getDate())) >= 0 && !h[mk] && mid.getDay() !== 0) h[mk] = '国民の休日';
+      });
+      holCache[y] = h;
+      return h;
+    }
 
     // 空き数 → 記号
     function markHtml(n){
@@ -118,8 +158,10 @@
         var cls2 = dow===0 ? 'sun' : (dow===6 ? 'sat' : '');
         var key = keyOf(viewYear, viewMonth, d);
         if (key === todayKey) cls2 += ' today';
+        var hname = holidaysOf(viewYear)[key];
+        if (hname) cls2 += ' hol';
 
-        html += '<td class="'+cls2+'"><div class="daynum">'+d+'</div>';
+        html += '<td class="'+cls2+'"><div class="daynum">'+d+(hname ? '<span class="holname">'+hname+'</span>' : '')+'</div>';
         if (bedData.hasOwnProperty(key)){
           html += '<div class="beds">'+markHtml(Number(bedData[key]))+'</div>';
         } else {
@@ -151,6 +193,10 @@
         if (payload.config.title) document.getElementById('title').innerHTML = payload.config.title;
         document.getElementById('sub').textContent = payload.config.lastUpdated || '';
         if (payload.config.title) document.title = payload.config.title.replace(/<[^>]+>/g,' ');
+        // 説明文（管理シートの「説明文」タブの内容．書式つきHTMLをGAS側で生成）
+        var noteEl = document.getElementById('note');
+        if (payload.config.noteHtml){ noteEl.innerHTML = payload.config.noteHtml; noteEl.hidden = false; }
+        else { noteEl.hidden = true; }
       }
       bedData = (payload && payload.beds) ? payload.beds : {};
 
